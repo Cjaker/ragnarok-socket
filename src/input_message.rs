@@ -72,10 +72,14 @@ impl InputMessage {
             if byte != 0 {
                 string.push(byte as char);
             }
-            
+
             read += 1;
         }
         string
+    }
+
+    pub fn is_eof(&self) -> bool {
+        self.position >= self.length
     }
 
     pub fn skip_bytes(&mut self, bytes: usize) {
