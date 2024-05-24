@@ -12,7 +12,7 @@ pub enum LoginClient {
 }
 
 use crate::{
-    client::network::write_message, r#const::{LOGIN_SERVER_ADDR, PACKET_HEADER_LEN}, enums, input_message::InputMessage, network_message::NetworkMessage, protocol::game
+    client::network::write_message, r#const::{LOGIN_SERVER_ADDR, PACKET_HEADER_LEN}, enums, input_message::InputMessage, network_message::NetworkMessage, protocol::character_list
 };
 use std::collections::HashMap;
 use tokio::{io::AsyncReadExt, net::TcpStream};
@@ -72,7 +72,7 @@ async fn login_auth_ok(data: &mut InputMessage) {
 
         if data.is_eof() {
             tokio::spawn(async move {
-                game::initialize(&ip_str, server_port, login_id, login_id_2, acc_id, gender).await;
+                character_list::initialize(&ip_str, server_port, login_id, login_id_2, acc_id, gender).await;
             });
             break;
         }
@@ -142,7 +142,7 @@ async fn client_send_reqauth(stream: &mut TcpStream, username: String, password:
 }
 
 async fn login_listener(stream: &mut TcpStream) {
-    let mut data_packet_id: u16 = 0xFFFF;
+    let mut data_packet_id: u16 = u16::MAX;
 
     let mut total_read: usize = 0;
     let mut packet_len: usize = PACKET_HEADER_LEN as usize; // start on 2, to get packet id
@@ -174,7 +174,7 @@ async fn login_listener(stream: &mut TcpStream) {
                 // println!("{:02X?}", &buffer[0..total_read]);
 
                 // read some data
-                if !parse_len && data_packet_id != 0xFFFF && total_read == packet_len {
+                if !parse_len && data_packet_id != u16::MAX && total_read == packet_len {
                     let header_size = if has_packet_len {
                         PACKET_HEADER_LEN as usize + 2
                     } else {
@@ -188,7 +188,7 @@ async fn login_listener(stream: &mut TcpStream) {
                         true => {
                             // reset packet_len to read the next packet
                             packet_len = PACKET_HEADER_LEN as usize;
-                            data_packet_id = 0;
+                            data_packet_id = u16::MAX;
                             parse_len = false;
                             has_packet_len = false;
                             total_read = 0;
@@ -256,7 +256,7 @@ pub async fn initialize() {
         Ok(mut stream) => {
             // send first packets
             client_send_udpclhash(&mut stream).await;
-            client_send_reqauth(&mut stream, "test".to_string(), "test123".to_string()).await;
+            client_send_reqauth(&mut stream, "test2".to_string(), "test123".to_string()).await;
             tokio::spawn(async move {
                 login_listener(&mut stream).await;
             })

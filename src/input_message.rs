@@ -60,12 +60,12 @@ impl InputMessage {
         let size = n.unwrap_or(0);
 
         loop {
-            let byte = self.read_u8();
-            if size == 0 && byte == 0 {
+            if size != 0 && read == size {
                 break;
             }
 
-            if size != 0 && read == size {
+            let byte = self.read_u8();
+            if size == 0 && byte == 0 {
                 break;
             }
 
