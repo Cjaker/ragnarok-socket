@@ -5,4 +5,5 @@ edition = "2021"
 
 [dependencies]
 num_enum = "0.7.2"
+rand = "0.8.5"
 tokio = { version = "1.37.0", features = ["full"] }

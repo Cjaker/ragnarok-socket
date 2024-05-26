@@ -54,6 +54,14 @@ impl InputMessage {
         value
     }
 
+    pub fn read_bytes(&mut self, bytes: u32) -> Vec<u8> {
+        let mut data = Vec::new();
+        for _ in 0..bytes {
+            data.push(self.read_u8());
+        }
+        data
+    }
+
     pub fn read_string(&mut self, n: Option<usize>) -> String {
         let mut string = String::new();
         let mut read = 0;
