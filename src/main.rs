@@ -4,6 +4,7 @@ mod input_message;
 mod network_message;
 mod protocol;
 mod client;
+mod model;
 
 use tokio::runtime::Builder;
 

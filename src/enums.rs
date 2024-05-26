@@ -95,3 +95,20 @@ pub enum StatusPoint {
     SpUcon,
     SpUcrt,
 }
+
+#[derive(num_enum::TryFromPrimitive)]
+#[repr(u16)]
+pub enum DropEffectMode {
+    DropEffectNone = 0,
+    DropEffectClient,
+    DropEffectBluePillar,
+    DropEffectYellowPillar,
+    DropEffectPurplePillar,
+    DropEffectGreenPillar,
+    DropEffectRedPillar,
+    DropEffectMax,
+    // White was removed in 2020-03-04
+    DropEffectWhitePillar,
+    // Orange was replaced by green in 2020-03-04
+    DropEffectOrangePillar,
+}

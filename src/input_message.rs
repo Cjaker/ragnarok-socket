@@ -93,4 +93,8 @@ impl InputMessage {
     pub fn skip_bytes(&mut self, bytes: usize) {
         self.position += bytes;
     }
+
+    pub fn set_position(&mut self, position: usize) {
+        self.position = position;
+    }
 }

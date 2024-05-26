@@ -1,17 +1,23 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, time::Duration};
 
 use num_enum::TryFromPrimitive;
-use rand::Rng;
 use tokio::{io::AsyncReadExt, net::TcpStream};
 
 use crate::{
-    client::network::write_message, enums::StatusPoint, input_message::InputMessage,
-    network_message::NetworkMessage, protocol::helper::read_pos, r#const::PACKET_HEADER_LEN,
+    client::network::write_message,
+    enums::{DropEffectMode, StatusPoint},
+    input_message::InputMessage,
+    network_message::NetworkMessage,
+    protocol::helper::read_pos,
+    r#const::PACKET_HEADER_LEN,
 };
+
+use super::helper::read_move_data;
 
 #[derive(TryFromPrimitive)]
 #[repr(u16)]
 pub enum GameClient {
+    WalkTo = 0x035F,
     ConnectMapServer = 0x0436,
     RequestAction = 0x0437,
     EffectsOption = 0x021D,
@@ -29,8 +35,16 @@ pub enum GameServer {
     NotifyChangeStatus = 0x02CE,
     AuthOk = 0x02EB,
     DisplayMessage = 0x008E,
+    ObjectMove = 0x0086,
+    WalkSucceeded = 0x0087,
+    StopPos = 0x0088, // used for fixing pos too
+    ObjectAction = 0x008A,
+    ObjectAction3 = 0x08C8, // tested and received when a monster tries to hit
+    ChatMessage = 0x008D,
     ChangeMap = 0x0091,
+    ItemDisappear = 0x00A1,
     ParameterChange = 0x00B0,
+    NpcClose = 0x00B6,
     CoupleStatus = 0x0141,
     AtkRange = 0x013A,
     MailUnread = 0x09E7,
@@ -38,6 +52,7 @@ pub enum GameServer {
     SingleAchievementData = 0x0A24,
     AllAchievementsData = 0x0A23,
     WeightLimit = 0x0ADE,
+    DropItem = 0x0ADD,
     SpriteChange = 0x01D7,
     InventoryStart = 0x0B08,
     InventoryType = 0x0B39,
@@ -45,6 +60,8 @@ pub enum GameServer {
     EquipSwitchList = 0x0A9B,
     MapProperty = 0x099B,
     UnitIdle = 0x09FF,         // unit idle info!
+    UnitWalking = 0x09FD,      // unit walking info!
+    UnitSpawn = 0x09FE,        // unit spawn info!
     ScreenActiveEFST = 0x0984, // Notifies the client when a player enters the screen with an active EFST.
     SkillTree = 0x010F,
     ShortcutsKeyList = 0x0B20,
@@ -55,6 +72,9 @@ pub enum GameServer {
     EquipWindowOpen = 0x02DA,
     ConfigurationChange = 0x02D9,
     UnitChangedDir = 0x009C,
+    StatusChange = 0x0196,
+    StatusChange2 = 0x0983,
+    UnitClear = 0x0080,
 }
 
 pub static mut GAME_PACKETS_LEN: Option<HashMap<u16, u16>> = None;
@@ -74,6 +94,17 @@ pub async fn game_connect_map_server(
     network_message.add(login_id);
     network_message.add(client_tick as u64);
     network_message.add(sex);
+
+    write_message(stream, &network_message).await;
+}
+
+pub async fn game_request_walk_to(stream: &mut TcpStream, x: u16, y: u16, dir: u16) {
+    let mut network_message = NetworkMessage::new();
+    network_message.add(GameClient::WalkTo as u16);
+
+    network_message.add((x >> 2) as u8);
+    network_message.add(((x << 6) | ((y >> 4) & 0x3f)) as u8);
+    network_message.add(((y << 4) | (dir & 0xf)) as u8);
 
     write_message(stream, &network_message).await;
 }
@@ -150,7 +181,7 @@ pub async fn game_notify_change_status(data: &mut InputMessage) {
 
 pub async fn game_auth_ok(data: &mut InputMessage) {
     let client_tick = data.read_u32();
-    let pos = read_pos(data).await;
+    let pos = read_pos(data);
 
     // print x, y, dir
     println!("x: {}, y: {}, dir: {}", pos.0, pos.1, pos.2);
@@ -167,10 +198,74 @@ pub async fn game_display_message(data: &mut InputMessage) {
     println!("Message: {}", message);
 }
 
+pub async fn game_object_move(stream: &mut TcpStream, data: &mut InputMessage) {
+    let object_id = data.read_u32();
+    let move_data = read_move_data(data);
+    let server_tick = data.read_u32();
+
+    // when any player moves, this triggers
+}
+
+pub async fn game_walk_succeeded(data: &mut InputMessage) {
+    let walk_time_start: u32 = data.read_u32();
+    let move_data = read_move_data(data);
+}
+
+// used for fixing pos too
+pub async fn game_stop_pos(data: &mut InputMessage) {
+    let object_id = data.read_u32();
+    let x = data.read_u16();
+    let y = data.read_u16();
+}
+
+pub async fn game_object_action(data: &mut InputMessage) {
+    let object_id = data.read_u32();
+    data.set_position(26); // skip 26 bytes
+    let action_type = data.read_u8();
+
+    match action_type {
+        1 => {
+            // pick up something
+            data.set_position(5); // back after object_id data
+            let dst_id = data.read_u32();
+        }
+        2 => { // sitting
+        }
+        3 => { // standing
+        }
+        _ => {}
+    }
+}
+
+pub async fn game_object_action_3(data: &mut InputMessage) {
+    let from_object_id = data.read_u32();
+    let to_object_id = data.read_u32();
+    let server_tick = data.read_u32();
+    let src_speed = data.read_u16();
+    let dst_speed = data.read_u16();
+    let damage = data.read_u32();
+    let is_sp_damage = data.read_u8() == 1;
+    let div = data.read_u16();
+    let r#type = data.read_u8();
+    let damage_2 = data.read_u32();
+}
+
+pub async fn game_chat_message(data: &mut InputMessage) {
+    let gid = data.read_u32();
+    let remaining_bytes = data.length - data.position;
+    let message = data.read_string(Some(remaining_bytes));
+
+    println!("[game_chat_message] {}", message);
+}
+
 pub async fn game_change_map(data: &mut InputMessage) {
     let map_name = data.read_string(Some(16));
     let x = data.read_u16();
     let y = data.read_u16();
+}
+
+pub async fn game_item_disappear(data: &mut InputMessage) {
+    let aid = data.read_u32();
 }
 
 pub async fn game_param_change(data: &mut InputMessage) {
@@ -262,6 +357,10 @@ pub async fn game_param_change(data: &mut InputMessage) {
             // Handle default case if needed
         }
     }
+}
+
+pub async fn game_npc_close(data: &mut InputMessage) {
+    let npc_id = data.read_u32();
 }
 
 pub async fn game_couple_status(data: &mut InputMessage) {
@@ -363,6 +462,21 @@ pub async fn game_weight_limit(data: &mut InputMessage) {
     let weight_percent = data.read_u32();
 }
 
+pub async fn game_drop_item(data: &mut InputMessage) {
+    let aid = data.read_u32();
+    let item_id = data.read_u32();
+    let item_type = data.read_u16();
+    let is_identified = data.read_u8() == 1;
+    let x = data.read_u16();
+    let y = data.read_u16();
+    let sub_x = data.read_u8();
+    let sub_y = data.read_u8();
+    let count = data.read_u16();
+    let show_drop_effect = data.read_u8() == 1;
+    let drop_effect_mode =
+        DropEffectMode::try_from_primitive(data.read_u16()).expect("invalid drop effect mode");
+}
+
 pub async fn game_sprite_change(data: &mut InputMessage) {
     let acc_id = data.read_u32();
     let sprite_type = data.read_u8();
@@ -454,7 +568,8 @@ pub async fn game_map_property(data: &mut InputMessage) {
     // 	//(1<<11); // Unused bits. 1 - 10 is 0x1 length and 11 is 0x15 length. May be used for future settings.
 }
 
-pub async fn game_unit_idle(data: &mut InputMessage) {
+// internal function
+pub async fn parse_unit_data(data: &mut InputMessage, packet_type: GameServer) {
     let object_type = data.read_u8();
     let aid = data.read_u32();
     let gid = data.read_u32();
@@ -467,6 +582,15 @@ pub async fn game_unit_idle(data: &mut InputMessage) {
     let weapon = data.read_u32();
     let shield = data.read_u32();
     let accessory = data.read_u16();
+
+    // received only when unit is walking
+    match packet_type {
+        GameServer::UnitWalking => {
+            let move_start_time = data.read_u32();
+        }
+        _ => {}
+    }
+
     let accessory2 = data.read_u16();
     let accessory3 = data.read_u16();
     let head_palette = data.read_u16();
@@ -479,10 +603,27 @@ pub async fn game_unit_idle(data: &mut InputMessage) {
     let virtue = data.read_u32();
     let is_pk_mode_on = data.read_u8() == 1;
     let sex = data.read_u8();
-    let pos_dir = data.read_bytes(3);
+
+    match packet_type {
+        GameServer::UnitWalking => {
+            let move_data = read_move_data(data);
+        }
+        _ => {
+            let pos_dir = data.read_bytes(3);
+        }
+    }
+
     let x_size = data.read_u8();
     let y_size = data.read_u8();
-    let state = data.read_u8();
+
+    // not received on unit spawn, only on unit idle packet!
+    match packet_type {
+        GameServer::UnitIdle => {
+            let state = data.read_u8();
+        }
+        _ => {}
+    }
+
     let clevel = data.read_u16();
     let font = data.read_u16();
     let max_hp = data.read_u32();
@@ -490,6 +631,47 @@ pub async fn game_unit_idle(data: &mut InputMessage) {
     let is_boss = data.read_u8();
     let body = data.read_u16();
     let name = data.read_string(Some(24));
+}
+
+pub async fn game_unit_idle(data: &mut InputMessage) {
+    parse_unit_data(data, GameServer::UnitIdle).await;
+
+    if !data.is_eof() {
+        panic!("[game_unit_idle] missing bytes to read!");
+    }
+}
+
+pub async fn game_unit_spawn(data: &mut InputMessage) {
+    parse_unit_data(data, GameServer::UnitSpawn).await;
+
+    if !data.is_eof() {
+        panic!("[game_unit_spawn] missing bytes to read!");
+    }
+}
+
+pub async fn game_unit_walking(data: &mut InputMessage) {
+    parse_unit_data(data, GameServer::UnitWalking).await;
+
+    if !data.is_eof() {
+        panic!("[game_unit_walking] missing bytes to read!");
+    }
+}
+
+pub async fn game_unit_changed_dir(data: &mut InputMessage) {
+    let unit_id = data.read_u32();
+    let head_dir = data.read_u16();
+    let dir = data.read_u8();
+}
+
+/// clear type:
+///     0 = out of sight
+///     1 = died
+///     2 = logged out
+///     3 = teleport
+///     4 = trickdead
+pub async fn game_unit_clear(data: &mut InputMessage) {
+    let unit_id = data.read_u32();
+    let clear_type = data.read_u8();
 }
 
 pub async fn game_screen_active_esft(data: &mut InputMessage) {
@@ -606,10 +788,22 @@ pub async fn game_configuration_change(data: &mut InputMessage) {
     let enabled = data.read_u32() == 1;
 }
 
-pub async fn game_unit_changed_dir(data: &mut InputMessage) {
-    let unit_id = data.read_u32();
-    let head_dir = data.read_u16();
-    let dir = data.read_u8();
+pub async fn game_status_change(data: &mut InputMessage) {
+    let status_type = data.read_u16();
+    let object_id = data.read_u32();
+    let flag = data.read_u8(); // flag 1:Active, 0:Deactive
+}
+
+pub async fn game_status_change_2(data: &mut InputMessage) {
+    let status_type = data.read_u16();
+    let object_id = data.read_u32();
+    let flag = data.read_u8(); // flag 1:Active, 0:Deactive
+    let total_msec = data.read_u32();
+    let remain_msec = data.read_u32();
+
+    let val1 = data.read_u32();
+    let val2 = data.read_u32();
+    let val3 = data.read_u32();
 }
 
 pub async fn game_packet_handler(
@@ -637,11 +831,36 @@ pub async fn game_packet_handler(
         GameServer::DisplayMessage => {
             game_display_message(data).await;
         }
+        GameServer::ObjectMove => {
+            game_object_move(stream, data).await;
+        }
+        GameServer::WalkSucceeded => {
+            game_walk_succeeded(data).await;
+        }
+        GameServer::StopPos => {
+            // used for fixing pos too
+            game_stop_pos(data).await;
+        }
+        GameServer::ObjectAction => {
+            game_object_action(data).await;
+        }
+        GameServer::ObjectAction3 => {
+            game_object_action_3(data).await;
+        }
+        GameServer::ChatMessage => {
+            game_chat_message(data).await;
+        }
         GameServer::ChangeMap => {
             game_change_map(data).await;
         }
+        GameServer::ItemDisappear => {
+            game_item_disappear(data).await;
+        }
         GameServer::ParameterChange => {
             game_param_change(data).await;
+        }
+        GameServer::NpcClose => {
+            game_npc_close(data).await;
         }
         GameServer::CoupleStatus => {
             game_couple_status(data).await;
@@ -668,6 +887,9 @@ pub async fn game_packet_handler(
             // tell to server we are all map data ready
             game_request_ack_map(stream).await;
         }
+        GameServer::DropItem => {
+            game_drop_item(data).await;
+        }
         GameServer::SpriteChange => {
             game_sprite_change(data).await;
         }
@@ -688,6 +910,18 @@ pub async fn game_packet_handler(
         }
         GameServer::UnitIdle => {
             game_unit_idle(data).await;
+        }
+        GameServer::UnitSpawn => {
+            game_unit_spawn(data).await;
+        }
+        GameServer::UnitWalking => {
+            game_unit_walking(data).await;
+        }
+        GameServer::UnitChangedDir => {
+            game_unit_changed_dir(data).await;
+        }
+        GameServer::UnitClear => {
+            game_unit_clear(data).await;
         }
         GameServer::ScreenActiveEFST => {
             game_screen_active_esft(data).await;
@@ -717,8 +951,11 @@ pub async fn game_packet_handler(
         GameServer::ConfigurationChange => {
             game_configuration_change(data).await;
         }
-        GameServer::UnitChangedDir => {
-            game_unit_changed_dir(data).await;
+        GameServer::StatusChange => {
+            game_status_change(data).await;
+        }
+        GameServer::StatusChange2 => {
+            game_status_change_2(data).await;
         }
         _ => {
             println!("Unknown packet id: {:x}", packet_id as u16);
@@ -860,8 +1097,16 @@ pub async fn initialize(
         game_packets_len.insert(GameServer::NotifyChangeStatus as u16, 8);
         game_packets_len.insert(GameServer::AuthOk as u16, 11);
         game_packets_len.insert(GameServer::DisplayMessage as u16, u16::MAX);
+        game_packets_len.insert(GameServer::ObjectMove as u16, 14);
+        game_packets_len.insert(GameServer::WalkSucceeded as u16, 10);
+        game_packets_len.insert(GameServer::StopPos as u16, 8);
+        game_packets_len.insert(GameServer::ObjectAction as u16, 27);
+        game_packets_len.insert(GameServer::ObjectAction3 as u16, 32);
+        game_packets_len.insert(GameServer::ChatMessage as u16, u16::MAX);
         game_packets_len.insert(GameServer::ChangeMap as u16, 20);
+        game_packets_len.insert(GameServer::ItemDisappear as u16, 4);
         game_packets_len.insert(GameServer::ParameterChange as u16, 6);
+        game_packets_len.insert(GameServer::NpcClose as u16, 4);
         game_packets_len.insert(GameServer::CoupleStatus as u16, 12);
         game_packets_len.insert(GameServer::AtkRange as u16, 2);
         game_packets_len.insert(GameServer::MailUnread as u16, 1);
@@ -869,6 +1114,7 @@ pub async fn initialize(
         game_packets_len.insert(GameServer::SingleAchievementData as u16, 64);
         game_packets_len.insert(GameServer::AllAchievementsData as u16, u16::MAX);
         game_packets_len.insert(GameServer::WeightLimit as u16, 4);
+        game_packets_len.insert(GameServer::DropItem as u16, 22);
         game_packets_len.insert(GameServer::SpriteChange as u16, 13);
         game_packets_len.insert(GameServer::InventoryStart as u16, u16::MAX);
         game_packets_len.insert(GameServer::InventoryType as u16, u16::MAX);
@@ -876,6 +1122,10 @@ pub async fn initialize(
         game_packets_len.insert(GameServer::EquipSwitchList as u16, u16::MAX);
         game_packets_len.insert(GameServer::MapProperty as u16, 6);
         game_packets_len.insert(GameServer::UnitIdle as u16, u16::MAX);
+        game_packets_len.insert(GameServer::UnitSpawn as u16, u16::MAX);
+        game_packets_len.insert(GameServer::UnitWalking as u16, u16::MAX);
+        game_packets_len.insert(GameServer::UnitChangedDir as u16, 7);
+        game_packets_len.insert(GameServer::UnitClear as u16, 5);
         game_packets_len.insert(GameServer::ScreenActiveEFST as u16, 26);
         game_packets_len.insert(GameServer::SkillTree as u16, u16::MAX);
         game_packets_len.insert(GameServer::ShortcutsKeyList as u16, 269);
@@ -885,7 +1135,8 @@ pub async fn initialize(
         game_packets_len.insert(GameServer::PartyInvitationState as u16, 1);
         game_packets_len.insert(GameServer::EquipWindowOpen as u16, 1);
         game_packets_len.insert(GameServer::ConfigurationChange as u16, 8);
-        game_packets_len.insert(GameServer::UnitChangedDir as u16, 7);
+        game_packets_len.insert(GameServer::StatusChange as u16, 7);
+        game_packets_len.insert(GameServer::StatusChange2 as u16, 27);
 
         GAME_PACKETS_LEN = Some(game_packets_len);
     }
