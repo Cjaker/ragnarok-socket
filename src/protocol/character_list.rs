@@ -26,7 +26,8 @@ pub enum CharListServer {
     BanCharacter = 0x020D,
     PinCodeState = 0x08B9,
     AckCharInfoPerPage = 0x0B72,
-    MapData = 0xAC5
+    MapData = 0xAC5,
+    MapServerNotReady = 0x0840
 }
 
 pub static mut CHAR_LIST_PACKETS_LEN: Option<HashMap<u16, u16>> = None;
@@ -205,6 +206,10 @@ pub async fn char_list_packet_handler(
             char_list_char_select(stream, 0).await;
             return true;
         }
+        CharListServer::MapServerNotReady => {
+            char_list_map_server_not_ready(data).await;
+            return true;
+        }
         CharListServer::MapData => {
             char_list_map_data(data).await;
             return false;
@@ -232,7 +237,7 @@ pub async fn game_listener(stream: &mut TcpStream) {
     loop {
         stream.readable().await.expect("stream not readable");
         // print total read and packet len
-        println!("total read: {}, packet len: {}", total_read, packet_len);
+        //println!("total read: {}, packet len: {}", total_read, packet_len);
         let read_result = stream.read(&mut buffer[total_read..packet_len]).await;
         match read_result {
             Ok(n) => {
@@ -243,7 +248,7 @@ pub async fn game_listener(stream: &mut TcpStream) {
 
                 total_read += n;
 
-                println!("total read: {}", total_read);
+                //println!("total read: {}", total_read);
 
                 // print the buffer as hexadecimal bytes, for debugging purposes
                 // println!("{:02X?}", &buffer[0..total_read]);
@@ -256,7 +261,7 @@ pub async fn game_listener(stream: &mut TcpStream) {
                         PACKET_HEADER_LEN as usize
                     };
 
-                    println!("header size: {}, total read {}", header_size, total_read);
+                    //println!("header size: {}, total read {}", header_size, total_read);
                     let mut input_message =
                         InputMessage::new(buffer[header_size..packet_len].to_vec());
                     let result =
@@ -299,7 +304,7 @@ pub async fn game_listener(stream: &mut TcpStream) {
                     // parse packet id first
                     data_packet_id = u16::from_le_bytes([buffer[0], buffer[1]]);
 
-                    println!("pckt id: {:x}", data_packet_id);
+                    //println!("pckt id: {:x}", data_packet_id);
 
                     let result = game_packets_len.get(&data_packet_id);
                     match result {
@@ -381,6 +386,11 @@ pub async fn char_list_ack_char_info_per_page(data: &mut InputMessage) {
     parse_char_info(data).await;
 }
 
+pub async fn char_list_map_server_not_ready(data: &mut InputMessage) {
+    let unk = data.read_u16();
+    data.skip_bytes(20);
+}
+
 pub async fn char_list_map_data(data: &mut InputMessage) {
     let char_id = data.read_u32();
     let map_name = data.read_string(Some(16));
@@ -435,6 +445,7 @@ pub async fn initialize(ip: &str, port: u16, login_id: u32, login_id_2: u32, acc
         char_list_packets_len.insert(CharListServer::PinCodeState as u16, 10);
         char_list_packets_len.insert(CharListServer::AckCharInfoPerPage as u16, u16::MAX);
         char_list_packets_len.insert(CharListServer::MapData as u16, 154);
+        char_list_packets_len.insert(CharListServer::MapServerNotReady as u16, 22);
 
         CHAR_LIST_PACKETS_LEN = Some(char_list_packets_len);
     }
