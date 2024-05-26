@@ -151,7 +151,7 @@ async fn login_listener(stream: &mut TcpStream) {
     let mut parse_len = false;
     let mut has_packet_len = false;
 
-    println!("listening for packets..");
+    println!("[login_listener] listening for packets..");
 
     let login_packets_len;
     unsafe {
