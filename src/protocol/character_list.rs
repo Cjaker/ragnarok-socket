@@ -217,7 +217,7 @@ pub async fn char_list_packet_handler(
     }
 }
 
-pub async fn game_listener(stream: &mut TcpStream) {
+pub async fn char_list_listener(stream: &mut TcpStream) {
     let mut data_packet_id: u16 = u16::MAX;
 
     let mut total_read: usize = 0;
@@ -227,7 +227,7 @@ pub async fn game_listener(stream: &mut TcpStream) {
     let mut parse_len = false;
     let mut has_packet_len = false;
 
-    println!("listening for packets..");
+    println!("[char_list_listener] listening for packets..");
 
     let game_packets_len;
     unsafe {
@@ -457,7 +457,7 @@ pub async fn initialize(ip: &str, port: u16, login_id: u32, login_id_2: u32, acc
             println!("Connected to character list server: {}:{}", ip, port);
             // send char list request
             char_list_reqconnect(&mut stream, login_id, login_id_2, acc_id, sex).await;
-            game_listener(&mut stream).await;
+            char_list_listener(&mut stream).await;
         }
         Err(e) => {
             println!("Failed to connect to server: {}", e);
