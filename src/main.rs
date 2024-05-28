@@ -5,10 +5,13 @@ mod network_message;
 mod protocol;
 mod client;
 mod model;
+mod io;
 
 use tokio::runtime::Builder;
 
 async fn initialize() {
+    // testing io
+    //let gat_data = io::gat::GatData::parse("data/gat/pay_dun00.gat");
     protocol::login::initialize().await;
 
     loop {

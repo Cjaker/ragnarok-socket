@@ -4,12 +4,7 @@ use num_enum::TryFromPrimitive;
 use tokio::{io::AsyncReadExt, net::TcpStream};
 
 use crate::{
-    client::network::write_message,
-    enums::{DropEffectMode, StatusPoint},
-    input_message::InputMessage,
-    network_message::NetworkMessage,
-    protocol::helper::read_pos,
-    r#const::PACKET_HEADER_LEN,
+    client::network::write_message, r#const::PACKET_HEADER_LEN, enums::{DropEffectMode, StatusPoint}, input_message::InputMessage, io, network_message::NetworkMessage, protocol::helper::read_pos
 };
 
 use super::helper::read_move_data;
@@ -259,9 +254,18 @@ pub async fn game_chat_message(data: &mut InputMessage) {
 }
 
 pub async fn game_change_map(data: &mut InputMessage) {
-    let map_name = data.read_string(Some(16));
+    let mut map_name = data.read_string(Some(16));
     let x = data.read_u16();
     let y = data.read_u16();
+
+    println!("map_name: {}, x: {}, y: {}", map_name, x, y);
+
+    let mut map_name_new: String = String::new();
+    map_name_new.push_str("data/gat/");
+    map_name_new.push_str(&map_name);
+
+    // testing io
+    let gat_data = io::gat::GatData::parse(&map_name_new);
 }
 
 pub async fn game_item_disappear(data: &mut InputMessage) {
